@@ -6,11 +6,7 @@
 coverage.out
 results/
 
-# Desloppify
-.desloppify/
-
 # Temporary files
-ENDOFFILE
 *.tmp
 *.log
 
@@ -22,14 +18,3 @@ ENDOFFILE
 # OS files
 .DS_Store
 Thumbs.db
-
-# Virtual environments
-venv/
-.venv/
-
-# Generated files
-scorecard.png
-
-# Backup directories (add your specific backup folders here)
-# backup/
-# test-backup/

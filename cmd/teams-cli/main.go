@@ -221,6 +221,47 @@ func authCommands() *cobra.Command {
 		},
 	})
 
+	// Teams browser auth command
+	cmd.AddCommand(&cobra.Command{
+		Use:   "teams-browser-auth [authorization-code]",
+		Short: "Authenticate using Teams web client browser flow",
+		Long: `Authenticate using the Teams web client OAuth flow.
+		
+This uses Microsoft's official Teams web client credentials to obtain tokens
+that can access the internal Teams API (teams.cloud.microsoft).
+
+To use:
+1. Open browser and go to: https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=5e3ce6c0-2b1f-4285-8d4b-75ee78787346&response_type=code&redirect_uri=https://teams.cloud.microsoft/v2&scope=https://api.spaces.skype.com/.default%20openid%20profile%20offline_access&response_mode=query
+2. Login with your Microsoft account
+3. Copy the 'code' parameter from the redirect URL
+4. Run: teams-cli auth teams-browser-auth <code>`,
+		Args: cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			cfg := teams.DefaultConfig()
+			m365Client := m365.NewClientFromConfig(cfg, m365.WithVerbose(verbose))
+			svc := auth.NewService()
+
+			ctx := context.Background()
+			accessToken, refreshToken, err := svc.TeamsAuthCodeFlow(ctx, m365Client, args[0])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Teams browser auth failed: %v\n", err)
+				os.Exit(1)
+			}
+
+			// Save refresh token
+			if err := m365Client.SaveCredentials(refreshToken); err != nil {
+				fmt.Fprintln(os.Stderr, "Warning: failed to save credentials:", err)
+			}
+
+			if err := saveConfig(cfg); err != nil {
+				fmt.Fprintln(os.Stderr, "Warning: failed to save config:", err)
+			}
+
+			fmt.Println("✓ Teams browser authentication successful")
+			fmt.Printf("Access token acquired (length: %d)\n", len(accessToken))
+		},
+	})
+
 	return cmd
 }
 
@@ -331,7 +372,99 @@ func teamCommands() *cobra.Command {
 		},
 	})
 
+	// Add member command
+	cmd.AddCommand(&cobra.Command{
+		Use:   "add-member [team-id] [user-id]",
+		Short: "Add a member to a team",
+		Args:  cobra.ExactArgs(2),
+		Run: func(cmd *cobra.Command, args []string) {
+			cfg := loadConfig()
+			if cfg == nil {
+				fmt.Fprintln(os.Stderr, "Not authenticated. Run 'teams-cli auth login' first.")
+				os.Exit(1)
+			}
+			m365Client := m365.NewClientFromConfig(cfg, m365.WithVerbose(verbose))
+			teamsSvc := teamservice.NewService()
+
+			ctx := context.Background()
+			member := &teams.AddMemberRequest{
+				UserID: args[1],
+				Roles:  []string{"member"},
+			}
+			result, err := teamsSvc.AddMember(ctx, m365Client, args[0], member)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "Error:", err)
+				return
+			}
+			fmt.Printf("Added member: %s\n", result.ID)
+		},
+	})
+
 	addTeamSyncCommand(cmd)
+
+	channelsCmd := &cobra.Command{
+		Use:   "channels [team-id]",
+		Short: "List team channels with SharePoint URLs",
+		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			cfg := loadConfig()
+			if cfg == nil {
+				fmt.Fprintln(os.Stderr, "Not authenticated. Run 'teams-cli auth login' first.")
+				os.Exit(1)
+			}
+			m365Client := m365.NewClientFromConfig(cfg, m365.WithVerbose(verbose))
+			teamsSvc := teamservice.NewService()
+
+			ctx := context.Background()
+			channels, err := teamsSvc.ListChannels(ctx, m365Client, args[0])
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "Error:", err)
+				return
+			}
+
+			showSP, _ := cmd.Flags().GetBool("sharepoint")
+			for _, c := range channels {
+				if showSP {
+					folder, err := teamsSvc.GetFilesFolder(ctx, m365Client, args[0], c.ID)
+					if err != nil {
+						fmt.Printf("%s\t%s\t(sp: error: %v)\n", c.ID, c.DisplayName, err)
+					} else {
+						fmt.Printf("%s\t%s\t%s\n", c.ID, c.DisplayName, folder.WebUrl)
+					}
+				} else {
+					fmt.Printf("%s\t%s\n", c.ID, c.DisplayName)
+				}
+			}
+		},
+	}
+	channelsCmd.Flags().Bool("sharepoint", false, "Show SharePoint URLs for each channel")
+	cmd.AddCommand(channelsCmd)
+
+	// Channel members command
+	cmd.AddCommand(&cobra.Command{
+		Use:   "channel-members [team-id] [channel-id]",
+		Short: "List channel members (requires admin consent)",
+		Args:  cobra.ExactArgs(2),
+		Run: func(cmd *cobra.Command, args []string) {
+			cfg := loadConfig()
+			if cfg == nil {
+				fmt.Fprintln(os.Stderr, "Not authenticated. Run 'teams-cli auth login' first.")
+				os.Exit(1)
+			}
+			m365Client := m365.NewClientFromConfig(cfg, m365.WithVerbose(verbose))
+			teamsSvc := teamservice.NewService()
+
+			ctx := context.Background()
+			members, err := teamsSvc.ListChannelMembers(ctx, m365Client, args[0], args[1])
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "Error:", err)
+				return
+			}
+			for _, m := range members {
+				fmt.Printf("%s\t%s\t%s\t%s\t%s\n", m.ID, m.UserID, m.DisplayName, m.Email, m.Roles)
+			}
+		},
+	})
 
 	return cmd
 }
@@ -344,9 +477,34 @@ func spCommands() *cobra.Command {
 	}
 
 	cmd.AddCommand(&cobra.Command{
-		Use:   "files [site]",
-		Short: "List SharePoint files",
+		Use:   "sites [query]",
+		Short: "Search SharePoint sites",
 		Args:  cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			cfg := loadConfig()
+			if cfg == nil {
+				fmt.Fprintln(os.Stderr, "Not authenticated. Run 'teams-cli auth login' first.")
+				os.Exit(1)
+			}
+			m365Client := m365.NewClientFromConfig(cfg, m365.WithVerbose(verbose))
+			spSvc := sharepoint.NewService()
+
+			ctx := context.Background()
+			sites, err := spSvc.SearchSites(ctx, m365Client, args[0])
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "Error:", err)
+				return
+			}
+			for _, s := range sites {
+				fmt.Printf("%s\t%s\t%s\n", s.Name, s.DisplayName, s.WebUrl)
+			}
+		},
+	})
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "files [site] [path]",
+		Short: "List SharePoint files (use 'sites' to find site names)",
+		Args:  cobra.RangeArgs(1, 2),
 		Run: func(cmd *cobra.Command, args []string) {
 			cfg := loadConfig()
 			if cfg == nil {
@@ -362,7 +520,11 @@ func spCommands() *cobra.Command {
 				fmt.Fprintln(os.Stderr, "Error:", err)
 				return
 			}
-			files, err := spSvc.ListFiles(ctx, m365Client, siteID, "")
+			path := ""
+			if len(args) > 1 {
+				path = args[1]
+			}
+			files, err := spSvc.ListFiles(ctx, m365Client, siteID, path)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "Error:", err)
 				return
@@ -404,6 +566,59 @@ func spCommands() *cobra.Command {
 	})
 
 	addSyncCommand(cmd)
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "download [site] [remote-path] [local-path]",
+		Short: "Download a file from SharePoint",
+		Args:  cobra.RangeArgs(2, 3),
+		Run: func(cmd *cobra.Command, args []string) {
+			cfg := loadConfig()
+			if cfg == nil {
+				fmt.Fprintln(os.Stderr, "Not authenticated. Run 'teams-cli auth login' first.")
+				os.Exit(1)
+			}
+			m365Client := m365.NewClientFromConfig(cfg, m365.WithVerbose(verbose))
+			spSvc := sharepoint.NewService()
+
+			ctx := context.Background()
+			siteName := args[0]
+			remotePath := args[1]
+			localPath := args[2]
+			if len(args) <= 2 {
+				localPath = filepath.Base(remotePath)
+			}
+
+			siteID, err := spSvc.GetSiteID(ctx, m365Client, siteName)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+
+			fileInfo, err := spSvc.GetFileByPath(ctx, m365Client, siteID, remotePath)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+
+			if fileInfo.IsFolder {
+				fmt.Fprintln(os.Stderr, "Error: remote path is a folder, not a file")
+				os.Exit(1)
+			}
+
+			data, err := spSvc.DownloadFile(ctx, m365Client, siteID, fileInfo.ID)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+
+			if err := os.WriteFile(localPath, data, 0644); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+
+			fmt.Printf("Downloaded: %s -> %s (%d bytes)\n", remotePath, localPath, len(data))
+		},
+	})
 
 	return cmd
 }

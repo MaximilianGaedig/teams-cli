@@ -139,10 +139,13 @@ Examples:
 				os.Exit(1)
 			}
 
+			incremental, _ := cmd.Flags().GetBool("incremental")
+
 			opts := &teams.SyncOptions{
 				Direction:    direction,
 				ExcludePaths: []string{},
 				MaxFileSize:  maxFileSize,
+				Incremental:  incremental,
 			}
 
 			if err := spSvc.SyncFiles(ctx, m365Client, siteID, targetDir, opts); err != nil {
@@ -156,6 +159,7 @@ Examples:
 
 	syncCmd.Flags().String("direction", "down", "Sync direction: down, up, or both")
 	syncCmd.Flags().Int64("max-size-mb", 0, "Maximum file size to sync in MB (0 = no limit)")
+	syncCmd.Flags().Bool("incremental", false, "Only download files changed since last sync")
 
 	cmd.AddCommand(syncCmd)
 }

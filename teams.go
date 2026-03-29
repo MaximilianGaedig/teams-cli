@@ -42,7 +42,10 @@ type Client interface {
 	AcquireAccessToken(ctx context.Context, resource string) (string, error)
 	AcquireSharePointCookie(ctx context.Context) (string, time.Time, error)
 	GraphRequest(ctx context.Context, method, url string, body []byte) ([]byte, error)
+	BetaGraphRequest(ctx context.Context, method, url string, body []byte) ([]byte, error)
 	SharePointRequest(ctx context.Context, method, url string, body []byte) ([]byte, error)
+	TeamsRequest(ctx context.Context, method, url string, body []byte) ([]byte, error)
+	TeamsEMEARequest(ctx context.Context, method, url string, body []byte) ([]byte, error)
 	HTTPClient() *http.Client
 	GetDeviceCodeURL() string
 	GetTokenURL() string
@@ -72,6 +75,11 @@ type TeamsService interface {
 	ListMembers(ctx context.Context, client Client, teamID string) ([]Member, error)
 	AddMember(ctx context.Context, client Client, teamID string, member *AddMemberRequest) (*Member, error)
 	RemoveMember(ctx context.Context, client Client, teamID, memberID string) error
+
+	// Channel members management
+	ListChannelMembers(ctx context.Context, client Client, teamID, channelID string) ([]ChannelMember, error)
+	AddChannelMember(ctx context.Context, client Client, teamID, channelID string, member *AddChannelMemberRequest) (*ChannelMember, error)
+	RemoveChannelMember(ctx context.Context, client Client, teamID, channelID, memberID string) error
 
 	// Messages
 	GetChannelMessages(ctx context.Context, client Client, teamID, channelID string) ([]Message, error)
@@ -219,6 +227,21 @@ type AddMemberRequest struct {
 	Roles  []string // "owner", "member"
 }
 
+// Channel Member types
+type ChannelMember struct {
+	ID          string
+	DisplayName string
+	Email       string
+	UserID      string
+	Roles       []string // "owner", "member"
+	TenantID    string
+}
+
+type AddChannelMemberRequest struct {
+	UserID string
+	Roles  []string // "owner", "member"
+}
+
 // Message types
 type Message struct {
 	ID                   string
@@ -353,6 +376,7 @@ type FileInfo struct {
 	Size         int64
 	LastModified time.Time
 	IsFolder     bool
+	Hash         string
 }
 
 // Sync direction constants
@@ -367,6 +391,21 @@ type SyncOptions struct {
 	Parallel     int
 	ExcludePaths []string
 	MaxFileSize  int64 // Maximum file size in bytes (0 = no limit)
+	Incremental  bool  // Only download files changed since last sync
+}
+
+type SyncState struct {
+	LastSync   string              `json:"lastSync"`
+	Site       string              `json:"site"`
+	DeltaToken string              `json:"deltaToken,omitempty"`
+	Files      map[string]FileMeta `json:"files"`
+}
+
+type FileMeta struct {
+	ID       string `json:"id"`
+	Size     int64  `json:"size"`
+	Modified string `json:"modified"`
+	Hash     string `json:"hash,omitempty"`
 }
 
 // ListOptions provides pagination options for list operations
@@ -385,4 +424,12 @@ type ListResult struct {
 	NextLink string
 	// Count is the total number of items returned in this page
 	Count int
+}
+
+// SiteInfo represents a SharePoint site
+type SiteInfo struct {
+	ID          string
+	Name        string
+	DisplayName string
+	WebUrl      string
 }

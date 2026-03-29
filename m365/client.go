@@ -17,7 +17,10 @@ import (
 )
 
 const (
-	GraphResource = "https://graph.microsoft.com"
+	GraphResource      = "https://graph.microsoft.com"
+	TeamsResource      = "https://api.spaces.skype.com"
+	TeamsCloudResource = "https://teams.cloud.microsoft"
+	TeamsAPIBase       = "https://teams.cloud.microsoft/api/chatsvc"
 )
 
 type Client struct {
@@ -284,6 +287,157 @@ func (c *Client) GetSharePointToken() (string, error) {
 	return c.AcquireAccessToken(context.Background(), c.SharePointURL)
 }
 
+func (c *Client) GetTeamsToken() (string, error) {
+	return c.AcquireAccessToken(context.Background(), TeamsResource)
+}
+
+func (c *Client) GetTeamsCloudToken() (string, error) {
+	return c.AcquireAccessToken(context.Background(), TeamsCloudResource)
+}
+
+// GetSkypeToken generates a skype token from the spaces token
+// This is required for some Teams internal API operations
+func (c *Client) GetSkypeToken(ctx context.Context) (string, error) {
+	// Check cache first
+	if cached, ok := c.tokenCache["skype"]; ok && time.Now().Before(cached.ExpiresAt.Add(-5*time.Minute)) {
+		return cached.AccessToken, nil
+	}
+
+	// Get spaces token first
+	spacesToken, err := c.GetTeamsToken()
+	if err != nil {
+		return "", fmt.Errorf("failed to get spaces token: %w", err)
+	}
+
+	// Request skype token from authsvc
+	url := "https://teams.microsoft.com/api/authsvc/v1.0/authz"
+	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(""))
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+spacesToken)
+	req.Header.Set("Content-Length", "0")
+
+	c.logf("POST %s", url)
+
+	resp, err := c.doRequestWithRetry(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("failed to get skype token: HTTP %d - %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Tokens struct {
+			SkypeToken string `json:"skypeToken"`
+			ExpiresIn  int64  `json:"expiresIn"`
+		} `json:"tokens"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to decode skype token response: %w", err)
+	}
+
+	// Cache the token
+	c.tokenCache["skype"] = &teams.TokenInfo{
+		AccessToken: result.Tokens.SkypeToken,
+		ExpiresAt:   time.Now().Add(time.Duration(result.Tokens.ExpiresIn) * time.Second),
+	}
+
+	return result.Tokens.SkypeToken, nil
+}
+
+// TeamsRequest makes a request to the Teams internal chatsvc API
+// Uses skype token which is exchanged from the spaces token
+func (c *Client) TeamsRequest(ctx context.Context, method, endpoint string, body []byte) ([]byte, error) {
+	// Get skype token (exchanged from spaces token)
+	token, err := c.GetSkypeToken(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get skype token: %w", err)
+	}
+	c.logf("Got skype token (length: %d)", len(token))
+
+	url := TeamsAPIBase + "/" + endpoint
+	req, err := buildRequest(ctx, c.httpClient, method, url, token, body, "bearer")
+	if err != nil {
+		return nil, err
+	}
+
+	// Teams API headers
+	req.Header.Set("Accept", "application/json")
+
+	c.logf("%s %s", method, url)
+
+	resp, err := c.doRequestWithRetry(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	return handleResponse(resp, c.verbose, "%s %s", method, endpoint)
+}
+
+const TeamsEMEAApiBase = "https://teams.microsoft.com/api"
+
+// TeamsEMEARequest makes a request to the Teams EMEA regional API
+// This API has different endpoints for channels, members, etc.
+func (c *Client) TeamsEMEARequest(ctx context.Context, method, endpoint string, body []byte) ([]byte, error) {
+	// Get token for api.spaces.skype.com resource
+	token, err := c.AcquireAccessToken(ctx, TeamsResource)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Teams token: %w", err)
+	}
+	c.logf("Got Teams token for EMEA API (length: %d)", len(token))
+
+	url := TeamsEMEAApiBase + "/" + endpoint
+	req, err := buildRequest(ctx, c.httpClient, method, url, token, body, "bearer")
+	if err != nil {
+		return nil, err
+	}
+
+	// EMEA API headers
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Origin", "https://teams.microsoft.com")
+
+	c.logf("%s %s", method, url)
+
+	resp, err := c.doRequestWithRetry(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	return handleResponse(resp, c.verbose, "%s %s", method, endpoint)
+}
+
+// BetaGraphRequest makes a request to Graph API Beta endpoint
+func (c *Client) BetaGraphRequest(ctx context.Context, method, endpoint string, body []byte) ([]byte, error) {
+	token, err := c.GetGraphToken()
+	if err != nil {
+		return nil, err
+	}
+
+	url := GraphResource + "/beta/" + endpoint
+	req, err := buildRequest(ctx, c.httpClient, method, url, token, body, "bearer")
+	if err != nil {
+		return nil, err
+	}
+
+	c.logf("%s %s", method, url)
+
+	resp, err := c.doRequestWithRetry(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	return handleResponse(resp, c.verbose, "%s %s", method, endpoint)
+}
+
 func (c *Client) AcquireSharePointCookie(ctx context.Context) (string, time.Time, error) {
 	if c.cookieCache != "" && time.Now().Before(c.cookieExpiry) {
 		c.logf("Using cached SharePoint cookie")
@@ -542,11 +696,13 @@ func handleResponse(resp *http.Response, verbose bool, format string, args ...in
 	}
 
 	if resp.StatusCode == 401 {
-		return nil, fmt.Errorf("unauthorized")
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("unauthorized: %s", string(body))
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, fmt.Errorf(format+" failed: HTTP %d", append(args, resp.StatusCode)...)
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf(format+" failed: HTTP %d - %s", append(args, resp.StatusCode, string(body))...)
 	}
 
 	// For 204 No Content, return empty body

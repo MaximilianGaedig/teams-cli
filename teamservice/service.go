@@ -318,9 +318,11 @@ func (s *Service) DeleteChannel(ctx context.Context, client teams.Client, teamID
 
 // GetFilesFolder gets the SharePoint folder for a channel
 func (s *Service) GetFilesFolder(ctx context.Context, client teams.Client, teamID, channelID string) (*teams.DriveItem, error) {
+	// Try Graph API first
 	data, err := client.GraphRequest(ctx, "GET", fmt.Sprintf("teams/%s/channels/%s/filesFolder", teamID, channelID), nil)
 	if err != nil {
-		return nil, err
+		// Fallback to Teams internal API (emea regional endpoint)
+		return s.getFilesFolderViaTeamsAPI(ctx, client, channelID)
 	}
 
 	var resp struct {
@@ -355,6 +357,40 @@ func (s *Service) GetFilesFolder(ctx context.Context, client teams.Client, teamI
 	}
 
 	return item, nil
+}
+
+// getFilesFolderViaTeamsAPI uses the Teams internal EMEA API to get document library info
+func (s *Service) getFilesFolderViaTeamsAPI(ctx context.Context, client teams.Client, channelID string) (*teams.DriveItem, error) {
+	// Use Teams EMEA regional API
+	endpoint := fmt.Sprintf("mt/part/emea-02/beta/channels/%s/documentlibraries", channelID)
+
+	data, err := client.TeamsRequest(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("Teams API document libraries failed: %w", err)
+	}
+
+	var resp struct {
+		Value []struct {
+			ID      string `json:"id"`
+			Name    string `json:"name"`
+			WebUrl  string `json:"webUrl"`
+			DriveID string `json:"driveId"`
+		} `json:"value"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+
+	if len(resp.Value) == 0 {
+		return nil, fmt.Errorf("no document libraries found")
+	}
+
+	// Return the first document library
+	return &teams.DriveItem{
+		ID:     resp.Value[0].ID,
+		Name:   resp.Value[0].Name,
+		WebUrl: resp.Value[0].WebUrl,
+	}, nil
 }
 
 // ListMembers returns the members of a team
@@ -448,6 +484,89 @@ func (s *Service) AddMember(ctx context.Context, client teams.Client, teamID str
 // RemoveMember removes a member from a team
 func (s *Service) RemoveMember(ctx context.Context, client teams.Client, teamID, memberID string) error {
 	_, err := client.GraphRequest(ctx, "DELETE", fmt.Sprintf("teams/%s/members/%s", teamID, memberID), nil)
+	return err
+}
+
+// ListChannelMembers gets channel members
+// Note: Requires 'ChannelMember.Read.All' permission with admin consent in Azure AD
+func (s *Service) ListChannelMembers(ctx context.Context, client teams.Client, teamID, channelID string) ([]teams.ChannelMember, error) {
+	// Use Graph API (requires admin consent for ChannelMember.Read.All)
+	data, err := client.GraphRequest(ctx, "GET", fmt.Sprintf("teams/%s/channels/%s/members", teamID, channelID), nil)
+	if err != nil {
+		return nil, fmt.Errorf("channel members requires 'ChannelMember.Read.All' permission with admin consent: %w", err)
+	}
+
+	var resp struct {
+		Value []struct {
+			ID          string   `json:"id"`
+			DisplayName string   `json:"displayName"`
+			Email       string   `json:"email"`
+			UserID      string   `json:"userId"`
+			Roles       []string `json:"roles"`
+			TenantID    string   `json:"tenantId"`
+		} `json:"value"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+
+	members := make([]teams.ChannelMember, len(resp.Value))
+	for i, m := range resp.Value {
+		members[i] = teams.ChannelMember{
+			ID:          m.ID,
+			DisplayName: m.DisplayName,
+			Email:       m.Email,
+			UserID:      m.UserID,
+			Roles:       m.Roles,
+			TenantID:    m.TenantID,
+		}
+	}
+	return members, nil
+}
+
+// AddChannelMember adds a member to a channel
+func (s *Service) AddChannelMember(ctx context.Context, client teams.Client, teamID, channelID string, member *teams.AddChannelMemberRequest) (*teams.ChannelMember, error) {
+	body := map[string]interface{}{
+		"@odata.type":     "#microsoft.graph.aadUserConversationMember",
+		"user@odata.bind": fmt.Sprintf("https://graph.microsoft.com/v1.0/users('%s')", member.UserID),
+		"roles":           member.Roles,
+	}
+
+	bodyJSON, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := client.GraphRequest(ctx, "POST", fmt.Sprintf("teams/%s/channels/%s/members", teamID, channelID), bodyJSON)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp struct {
+		ID          string   `json:"id"`
+		DisplayName string   `json:"displayName"`
+		Email       string   `json:"email"`
+		UserID      string   `json:"userId"`
+		Roles       []string `json:"roles"`
+		TenantID    string   `json:"tenantId"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+
+	return &teams.ChannelMember{
+		ID:          resp.ID,
+		DisplayName: resp.DisplayName,
+		Email:       resp.Email,
+		UserID:      resp.UserID,
+		Roles:       resp.Roles,
+		TenantID:    resp.TenantID,
+	}, nil
+}
+
+// RemoveChannelMember removes a member from a channel
+func (s *Service) RemoveChannelMember(ctx context.Context, client teams.Client, teamID, channelID, memberID string) error {
+	_, err := client.GraphRequest(ctx, "DELETE", fmt.Sprintf("teams/%s/channels/%s/members/%s", teamID, channelID, memberID), nil)
 	return err
 }
 

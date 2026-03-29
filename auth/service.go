@@ -31,6 +31,7 @@ type DeviceCodeResponse struct {
 
 const teamsResource = "https://api.spaces.skype.com"
 const graphResource = "https://graph.microsoft.com"
+const teamsCloudResource = "https://teams.cloud.microsoft"
 
 func (s *Service) StartDeviceLogin(ctx context.Context, client teams.Client) (*DeviceCodeResponse, error) {
 	data := url.Values{}
@@ -192,6 +193,10 @@ func (s *Service) getTeamsToken(ctx context.Context, client teams.Client) (strin
 	return s.getAccessToken(ctx, client, teamsResource)
 }
 
+func (s *Service) getTeamsCloudToken(ctx context.Context, client teams.Client) (string, error) {
+	return s.getAccessToken(ctx, client, teamsCloudResource)
+}
+
 func doOAuthPOST(ctx context.Context, client teams.Client, url string, body string, origin string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(body))
 	if err != nil {
@@ -221,4 +226,37 @@ func parseOAuthError(resp *http.Response) (token, refresh string, err error) {
 		return "", "", fmt.Errorf("auth failed: %s - %s", result.Error, result.ErrorDescription)
 	}
 	return result.AccessToken, result.RefreshToken, nil
+}
+
+// TeamsAuthCodeFlow initiates OAuth 2.0 auth code flow with PKCE for Teams impersonation
+// This uses Microsoft's official Teams web client credentials
+func (s *Service) TeamsAuthCodeFlow(ctx context.Context, client teams.Client, code string) (accessToken, refreshToken string, err error) {
+	// Microsoft's official Teams web client ID
+	teamsClientID := "5e3ce6c0-2b1f-4285-8d4b-75ee78787346"
+
+	data := url.Values{}
+	data.Set("client_id", teamsClientID)
+	data.Set("scope", "https://api.spaces.skype.com/.default openid profile offline_access")
+	data.Set("code", code)
+	data.Set("redirect_uri", "https://teams.cloud.microsoft/v2")
+	data.Set("grant_type", "authorization_code")
+	data.Set("client_info", "1")
+	data.Set("x-client-SKU", "msal.js.browser")
+	data.Set("x-client-VER", "3.30.0")
+
+	req, err := http.NewRequestWithContext(ctx, "POST", client.GetTokenURL(), strings.NewReader(data.Encode()))
+	if err != nil {
+		return "", "", err
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", "https://teams.cloud.microsoft")
+	req.Header.Set("Referer", "https://teams.cloud.microsoft/")
+
+	resp, err := client.HTTPClient().Do(req)
+	if err != nil {
+		return "", "", err
+	}
+
+	return parseOAuthError(resp)
 }
