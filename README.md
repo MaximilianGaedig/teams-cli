@@ -26,14 +26,29 @@ teams-cli auth login
 # List your teams
 teams-cli teams list
 
+# List channels with SharePoint URLs
+teams-cli teams channels [team-id] --sharepoint
+
+# Add member to team
+teams-cli teams add-member [team-id] [user-id]
+
 # List users
 teams-cli users list
 
 # Search users
 teams-cli users search "john"
 
+# Search SharePoint sites
+teams-cli sharepoint sites "project"
+
 # List SharePoint files
-teams-cli sharepoint files "Documents"
+teams-cli sharepoint files [site] [path]
+
+# Download file from SharePoint
+teams-cli sharepoint download [site] [remote-path] [local-path]
+
+# Sync files (with incremental support)
+teams-cli sharepoint sync [site] [local-dir] --direction down --incremental
 ```
 
 ### library usage
@@ -136,13 +151,16 @@ Credentials are stored in `~/.config/teams-cli/credentials.json`.
 
 ### sharepoint (`github.com/MaximilianGaedig/teams/sharepoint`)
 - `ListFiles` - List files in site
+- `GetFileByPath` - Get file info by path
 - `DownloadFile` - Download file content
 - `UploadFile` - Upload file
 - `CreateFolder` - Create folder
 - `DeleteFile` - Delete file/folder
 - `MoveFile` - Move file
 - `CopyFile` - Copy file
-- `SyncFiles` - Sync local directory
+- `SyncFiles` - Sync local directory (supports incremental sync)
+- `GetSiteID` - Get site ID by name
+- `SearchSites` - Search for SharePoint sites
 
 ### users (`github.com/MaximilianGaedig/teams/users`)
 - `ListUsers` - List directory users
