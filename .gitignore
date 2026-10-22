@@ -1,5 +1,6 @@
 # Build artifacts
 /teams-cli
+/cmd/teams-cli/teams-cli
 *.test
 
 # Test and coverage

@@ -219,10 +219,20 @@ client := m365.NewClientFromConfig(cfg, m365.WithRetry(3))
 
 ## testing
 
-Run tests with:
+Unit tests are hermetic: every package's `TestMain` runs with a throwaway `HOME`
+(`internal/testenv`), and the run fails if your real `~/.config/teams-cli`
+credentials or config change.
 
 ```bash
 go test ./...
+(cd cmd/teams-cli && go test ./...)
 ```
 
-Integration tests require authentication. Tests use a dedicated SharePoint test site and clean up after themselves.
+Integration tests talk to Microsoft 365 with your saved login (`teams-cli auth login`)
+and are opt-in via the `integration` build tag. The SharePoint ones create and delete
+folders, so point them at a dedicated test site; they are skipped when
+`SHAREPOINT_TEST_SITE_ID` is unset.
+
+```bash
+SHAREPOINT_TEST_SITE_ID=<site-id> go test -tags integration ./...
+```

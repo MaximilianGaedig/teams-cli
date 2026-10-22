@@ -1,3 +1,5 @@
+//go:build integration
+
 package teamservice_test
 
 import (
@@ -8,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/MaximilianGaedig/teams"
-	"teams-cli/lib/m365"
+	"github.com/MaximilianGaedig/teams/m365"
 	"github.com/MaximilianGaedig/teams/teamservice"
 )
 
@@ -37,7 +39,7 @@ func loadConfigForTest(t *testing.T) teams.Client {
 func TestService_ListTeams_API(t *testing.T) {
 	client := loadConfigForTest(t)
 	ctx := context.Background()
-	svc := teams.NewService()
+	svc := teamservice.NewService()
 
 	teamList, err := svc.ListTeams(ctx, client)
 	if err != nil {
@@ -50,7 +52,7 @@ func TestService_ListTeams_API(t *testing.T) {
 func TestService_GetTeamDetails_API(t *testing.T) {
 	client := loadConfigForTest(t)
 	ctx := context.Background()
-	svc := teams.NewService()
+	svc := teamservice.NewService()
 
 	teamList, err := svc.ListTeams(ctx, client)
 	if err != nil {
@@ -72,7 +74,7 @@ func TestService_GetTeamDetails_API(t *testing.T) {
 func TestService_ListChannels_API(t *testing.T) {
 	client := loadConfigForTest(t)
 	ctx := context.Background()
-	svc := teams.NewService()
+	svc := teamservice.NewService()
 
 	teamList, err := svc.ListTeams(ctx, client)
 	if err != nil {
@@ -94,7 +96,7 @@ func TestService_ListChannels_API(t *testing.T) {
 func TestService_GetChannel_API(t *testing.T) {
 	client := loadConfigForTest(t)
 	ctx := context.Background()
-	svc := teams.NewService()
+	svc := teamservice.NewService()
 
 	teamList, err := svc.ListTeams(ctx, client)
 	if err != nil {
@@ -125,7 +127,7 @@ func TestService_GetChannel_API(t *testing.T) {
 func TestService_ListMembers_API(t *testing.T) {
 	client := loadConfigForTest(t)
 	ctx := context.Background()
-	svc := teams.NewService()
+	svc := teamservice.NewService()
 
 	teamList, err := svc.ListTeams(ctx, client)
 	if err != nil {
@@ -147,7 +149,7 @@ func TestService_ListMembers_API(t *testing.T) {
 func TestService_GetChannelMessages_API(t *testing.T) {
 	client := loadConfigForTest(t)
 	ctx := context.Background()
-	svc := teams.NewService()
+	svc := teamservice.NewService()
 
 	teamList, err := svc.ListTeams(ctx, client)
 	if err != nil {
@@ -180,7 +182,7 @@ func TestService_GetChannelMessages_API(t *testing.T) {
 func TestService_GetFilesFolder_API(t *testing.T) {
 	client := loadConfigForTest(t)
 	ctx := context.Background()
-	svc := teams.NewService()
+	svc := teamservice.NewService()
 
 	teamList, err := svc.ListTeams(ctx, client)
 	if err != nil {
@@ -224,7 +226,7 @@ func TestService_GetFilesFolder_API(t *testing.T) {
 func TestService_ListInstalledApps_API(t *testing.T) {
 	client := loadConfigForTest(t)
 	ctx := context.Background()
-	svc := teams.NewService()
+	svc := teamservice.NewService()
 
 	teamList, err := svc.ListTeams(ctx, client)
 	if err != nil {

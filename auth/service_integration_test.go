@@ -1,3 +1,5 @@
+//go:build integration
+
 package auth_test
 
 import (
@@ -8,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/MaximilianGaedig/teams"
-	"teams-cli/lib/auth"
-	"teams-cli/lib/m365"
+	"github.com/MaximilianGaedig/teams/auth"
+	"github.com/MaximilianGaedig/teams/m365"
 )
 
 func loadConfigForTest(t *testing.T) *m365.Client {

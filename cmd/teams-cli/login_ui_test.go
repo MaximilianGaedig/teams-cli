@@ -4,9 +4,9 @@ import (
 	"errors"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/MaximilianGaedig/teams/auth"
 	"github.com/MaximilianGaedig/teams/m365"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 var errAuthFailed = errors.New("authentication failed")
@@ -125,8 +125,8 @@ func TestLoginModelDeviceCodeMsg(t *testing.T) {
 		DeviceCode:      "test-code",
 		VerificationURI: "https://login.microsoftonline.com",
 		UserCode:        "ABC123",
-		ExpiresIn:       900,
-		Interval:        5,
+		ExpiresIn:       "900",
+		Interval:        "5",
 	}
 
 	msg := deviceCodeMsg(dc)

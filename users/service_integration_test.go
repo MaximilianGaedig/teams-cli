@@ -1,3 +1,5 @@
+//go:build integration
+
 package users_test
 
 import (
@@ -9,8 +11,8 @@ import (
 	"testing"
 
 	"github.com/MaximilianGaedig/teams"
-	"teams-cli/lib/m365"
-	"teams-cli/lib/users"
+	"github.com/MaximilianGaedig/teams/m365"
+	"github.com/MaximilianGaedig/teams/users"
 )
 
 func isPermissionError(err error) bool {
