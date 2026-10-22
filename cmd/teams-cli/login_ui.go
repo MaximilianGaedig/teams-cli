@@ -221,6 +221,22 @@ func (m loginModel) pollForToken() tea.Cmd {
 	}
 }
 
+// loginOutcome reports whether the finished login program succeeded. It must
+// be given the model returned by tea.Program.Run, not the initial one.
+func loginOutcome(final tea.Model) error {
+	m, ok := final.(loginModel)
+	if !ok {
+		return fmt.Errorf("unexpected login state %T", final)
+	}
+	if m.err != nil {
+		return m.err
+	}
+	if !m.done {
+		return fmt.Errorf("login cancelled")
+	}
+	return nil
+}
+
 func (m loginModel) tickCmd() tea.Cmd {
 	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
 		return tickMsg(t)

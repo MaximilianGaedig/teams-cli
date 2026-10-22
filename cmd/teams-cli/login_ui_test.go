@@ -236,3 +236,22 @@ func TestErrMsgType(t *testing.T) {
 		t.Error("errMsg should not be nil")
 	}
 }
+
+func TestLoginOutcome(t *testing.T) {
+	client := m365.NewClient("test-client-id", "test-tenant-id", "test-sharepoint-tenant")
+	initial := initialLoginModel(client)
+
+	if err := loginOutcome(initial); err == nil {
+		t.Error("loginOutcome(initial model) = nil, want error: login has not finished")
+	}
+
+	succeeded, _ := initial.Update(tokenMsg("test-token"))
+	if err := loginOutcome(succeeded); err != nil {
+		t.Errorf("loginOutcome(after token) = %v, want nil", err)
+	}
+
+	failed, _ := initial.Update(errMsg(errAuthFailed))
+	if err := loginOutcome(failed); err == nil {
+		t.Error("loginOutcome(after error) = nil, want error")
+	}
+}

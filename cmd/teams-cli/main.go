@@ -91,22 +91,21 @@ func authCommands() *cobra.Command {
 		Use:   "login",
 		Short: "Login with Microsoft 365",
 		Run: func(cmd *cobra.Command, args []string) {
-			cfg := teams.DefaultConfig()
+			// Re-login keeps the saved tenant and SharePoint settings.
+			cfg := loadConfig()
+			if cfg == nil {
+				cfg = teams.DefaultConfig()
+			}
 			m365Client := m365.NewClientFromConfig(cfg, m365.WithVerbose(verbose))
 
-			model := initialLoginModel(m365Client)
-			p := tea.NewProgram(model)
-			if _, err := p.Run(); err != nil {
+			p := tea.NewProgram(initialLoginModel(m365Client))
+			final, err := p.Run()
+			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
-
-			if model.err != nil {
-				fmt.Fprintf(os.Stderr, "Login failed: %v\n", model.err)
-				os.Exit(1)
-			}
-
-			if !model.done {
+			if err := loginOutcome(final); err != nil {
+				fmt.Fprintf(os.Stderr, "Login failed: %v\n", err)
 				os.Exit(1)
 			}
 
