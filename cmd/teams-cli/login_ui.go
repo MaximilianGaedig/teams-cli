@@ -202,7 +202,7 @@ func (m loginModel) pollForToken() tea.Cmd {
 			default:
 			}
 
-			accessToken, refreshToken, err := m.svc.GetToken(ctx, m.client, m.deviceCode.DeviceCode)
+			_, refreshToken, err := m.svc.GetToken(ctx, m.client, m.deviceCode.DeviceCode)
 			if err != nil {
 				if pendingErr, ok := err.(*auth.ErrAuthorizationPending); ok {
 					time.Sleep(pendingErr.Interval)
@@ -211,11 +211,12 @@ func (m loginModel) pollForToken() tea.Cmd {
 				return errMsg(err)
 			}
 
-			// Use refresh token if available, otherwise fall back to access token
-			if refreshToken != "" {
-				return tokenMsg(refreshToken)
+			// Only a refresh token can be persisted: an access token saved in its
+			// place makes every later refresh fail with AADSTS9002313.
+			if refreshToken == "" {
+				return errMsg(fmt.Errorf("sign-in returned no refresh token, cannot stay logged in"))
 			}
-			return tokenMsg(accessToken)
+			return tokenMsg(refreshToken)
 		}
 	}
 }

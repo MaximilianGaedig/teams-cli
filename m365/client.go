@@ -20,7 +20,7 @@ const (
 	GraphResource      = "https://graph.microsoft.com"
 	TeamsResource      = "https://api.spaces.skype.com"
 	TeamsCloudResource = "https://teams.cloud.microsoft"
-	TeamsAPIBase       = "https://teams.cloud.microsoft/api/chatsvc"
+	TeamsAPIBase       = teams.TeamsWebOrigin + "/api/chatsvc"
 )
 
 type Client struct {
@@ -225,7 +225,29 @@ func (c *Client) SaveCredentials(refreshToken string) error {
 		return err
 	}
 
-	return os.WriteFile(credFile, data, 0600)
+	// Write-then-rename so a crash or a concurrent reader never sees a
+	// truncated file, which would silently log the user out.
+	tmp, err := os.CreateTemp(c.CredentialsDir, ".credentials-*.json")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name()) //nolint:errcheck
+	if err := tmp.Chmod(0600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), credFile)
 }
 
 func (c *Client) ClearCredentials() error {
@@ -268,7 +290,9 @@ func (c *Client) AcquireAccessToken(ctx context.Context, resource string) (strin
 
 	if refresh != "" && refresh != c.RefreshToken {
 		c.RefreshToken = refresh
-		_ = c.SaveCredentials(refresh)
+		if err := c.SaveCredentials(refresh); err != nil {
+			c.logf("warning: could not persist rotated refresh token: %v", err)
+		}
 	}
 
 	c.tokenCache[resource] = &teams.TokenInfo{
@@ -310,7 +334,7 @@ func (c *Client) GetSkypeToken(ctx context.Context) (string, error) {
 	}
 
 	// Request skype token from authsvc
-	url := "https://teams.microsoft.com/api/authsvc/v1.0/authz"
+	url := teams.TeamsWebOrigin + "/api/authsvc/v1.0/authz"
 	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(""))
 	if err != nil {
 		return "", err
@@ -381,7 +405,7 @@ func (c *Client) TeamsRequest(ctx context.Context, method, endpoint string, body
 	return handleResponse(resp, c.verbose, "%s %s", method, endpoint)
 }
 
-const TeamsEMEAApiBase = "https://teams.microsoft.com/api"
+const TeamsEMEAApiBase = teams.TeamsWebOrigin + "/api"
 
 // TeamsEMEARequest makes a request to the Teams EMEA regional API
 // This API has different endpoints for channels, members, etc.
@@ -401,7 +425,7 @@ func (c *Client) TeamsEMEARequest(ctx context.Context, method, endpoint string, 
 
 	// EMEA API headers
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Origin", "https://teams.microsoft.com")
+	req.Header.Set("Origin", teams.TeamsWebOrigin)
 
 	c.logf("%s %s", method, url)
 

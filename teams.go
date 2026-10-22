@@ -21,6 +21,10 @@ const (
 	DefaultOAuthClientID = "1fec8e78-bce4-4aaf-ab1b-5451cc387264"
 	// DefaultOAuthTenantID is the common tenant ID for Microsoft authentication ("common" works for any tenant)
 	DefaultOAuthTenantID = "common"
+
+	// TeamsWebOrigin hosts the Teams web client and its internal APIs. Microsoft
+	// redirects teams.microsoft.com here, mandatorily from 2027-01-01 (MC1465764).
+	TeamsWebOrigin = "https://teams.cloud.microsoft"
 )
 
 func DefaultConfig() *Config {

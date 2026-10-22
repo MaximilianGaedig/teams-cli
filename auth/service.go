@@ -110,7 +110,7 @@ func (s *Service) DiscoverSharePointTenant(ctx context.Context, client teams.Cli
 func (s *Service) discoverFromTeamsAPI(ctx context.Context, client teams.Client) (string, error) {
 	// Use Teams user aggregate settings API to get the SharePoint web URL
 	// This is the proper way Teams discovers the SharePoint tenant
-	url := "https://teams.microsoft.com/api/mt/part/emea-02/beta/users/useraggregatesettings"
+	url := teams.TeamsWebOrigin + "/api/mt/part/emea-02/beta/users/useraggregatesettings"
 
 	reqBody := map[string]interface{}{
 		"tenantSiteUrl": true,
@@ -177,9 +177,13 @@ func (s *Service) getAccessToken(ctx context.Context, client teams.Client, resou
 		return "", fmt.Errorf("no refresh token available")
 	}
 
-	body := fmt.Sprintf("client_id=%s&grant_type=refresh_token&refresh_token=%s&resource=%s", client.GetClientID(), client.GetRefreshToken(), resource)
+	form := url.Values{}
+	form.Set("client_id", client.GetClientID())
+	form.Set("grant_type", "refresh_token")
+	form.Set("refresh_token", client.GetRefreshToken())
+	form.Set("resource", resource)
 
-	resp, err := doOAuthPOST(ctx, client, client.GetTokenURL(), body, "https://teams.microsoft.com")
+	resp, err := doOAuthPOST(ctx, client, client.GetTokenURL(), form.Encode(), teams.TeamsWebOrigin)
 	if err != nil {
 		return "", err
 	}
@@ -238,7 +242,7 @@ func (s *Service) TeamsAuthCodeFlow(ctx context.Context, client teams.Client, co
 	data.Set("client_id", teamsClientID)
 	data.Set("scope", "https://api.spaces.skype.com/.default openid profile offline_access")
 	data.Set("code", code)
-	data.Set("redirect_uri", "https://teams.cloud.microsoft/v2")
+	data.Set("redirect_uri", teams.TeamsWebOrigin+"/v2")
 	data.Set("grant_type", "authorization_code")
 	data.Set("client_info", "1")
 	data.Set("x-client-SKU", "msal.js.browser")
@@ -250,8 +254,8 @@ func (s *Service) TeamsAuthCodeFlow(ctx context.Context, client teams.Client, co
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Origin", "https://teams.cloud.microsoft")
-	req.Header.Set("Referer", "https://teams.cloud.microsoft/")
+	req.Header.Set("Origin", teams.TeamsWebOrigin)
+	req.Header.Set("Referer", teams.TeamsWebOrigin+"/")
 
 	resp, err := client.HTTPClient().Do(req)
 	if err != nil {
