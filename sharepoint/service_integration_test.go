@@ -1,3 +1,5 @@
+//go:build integration
+
 package sharepoint_test
 
 import (
@@ -18,6 +20,9 @@ import (
 var testSiteID = os.Getenv("SHAREPOINT_TEST_SITE_ID")
 
 func loadConfigForTest(t *testing.T) teams.Client {
+	if testSiteID == "" {
+		t.Skip("SHAREPOINT_TEST_SITE_ID not set; set it to a dedicated test site to run SharePoint integration tests")
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatalf("Cannot determine home directory: %v", err)
@@ -70,32 +75,25 @@ func TestService_DownloadFile_API(t *testing.T) {
 	ctx := context.Background()
 	svc := sharepoint.NewService()
 
-	files, err := svc.ListFiles(ctx, client, testSiteID, "")
+	folder, err := svc.CreateFolder(ctx, client, testSiteID, "root", fmt.Sprintf("teams_cli_dl_test_%d", time.Now().UnixNano()))
 	if err != nil {
-		t.Fatalf("ListFiles failed: %v", err)
+		t.Fatalf("CreateFolder failed: %v", err)
+	}
+	t.Cleanup(func() { _ = svc.DeleteFile(context.Background(), client, testSiteID, folder.ID) })
+
+	want := []byte(fmt.Sprintf("teams-cli download test %d. Safe to delete.", time.Now().UnixNano()))
+	file, err := svc.UploadFile(ctx, client, testSiteID, folder.ID, "download_test.txt", want)
+	if err != nil {
+		t.Fatalf("UploadFile failed: %v", err)
 	}
 
-	if len(files) == 0 {
-		t.Skip("No files in test site to test DownloadFile")
-	}
-
-	var fileID string
-	for _, f := range files {
-		if !f.IsFolder {
-			fileID = f.ID
-			break
-		}
-	}
-	if fileID == "" {
-		t.Skip("No files in test site (only folders)")
-	}
-
-	data, err := svc.DownloadFile(ctx, client, testSiteID, fileID)
+	got, err := svc.DownloadFile(ctx, client, testSiteID, file.ID)
 	if err != nil {
 		t.Fatalf("DownloadFile failed: %v", err)
 	}
-
-	t.Logf("Downloaded file from test site, size: %d bytes", len(data))
+	if string(got) != string(want) {
+		t.Fatalf("DownloadFile returned %q, want %q", got, want)
+	}
 }
 
 func TestService_SyncFiles_API(t *testing.T) {
@@ -107,7 +105,7 @@ func TestService_SyncFiles_API(t *testing.T) {
 		Direction: teams.SyncDirectionDown,
 	}
 
-	err := svc.SyncFiles(ctx, client, testSiteID, "", options)
+	err := svc.SyncFiles(ctx, client, testSiteID, t.TempDir(), options)
 	if err != nil {
 		t.Fatalf("SyncFiles failed: %v", err)
 	}
