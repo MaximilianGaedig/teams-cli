@@ -318,11 +318,9 @@ func (s *Service) DeleteChannel(ctx context.Context, client teams.Client, teamID
 
 // GetFilesFolder gets the SharePoint folder for a channel
 func (s *Service) GetFilesFolder(ctx context.Context, client teams.Client, teamID, channelID string) (*teams.DriveItem, error) {
-	// Try Graph API first
 	data, err := client.GraphRequest(ctx, "GET", fmt.Sprintf("teams/%s/channels/%s/filesFolder", teamID, channelID), nil)
 	if err != nil {
-		// Fallback to Teams internal API (emea regional endpoint)
-		return s.getFilesFolderViaTeamsAPI(ctx, client, channelID)
+		return nil, err
 	}
 
 	var resp struct {
@@ -357,40 +355,6 @@ func (s *Service) GetFilesFolder(ctx context.Context, client teams.Client, teamI
 	}
 
 	return item, nil
-}
-
-// getFilesFolderViaTeamsAPI uses the Teams internal EMEA API to get document library info
-func (s *Service) getFilesFolderViaTeamsAPI(ctx context.Context, client teams.Client, channelID string) (*teams.DriveItem, error) {
-	// Use Teams EMEA regional API
-	endpoint := fmt.Sprintf("mt/part/emea-02/beta/channels/%s/documentlibraries", channelID)
-
-	data, err := client.TeamsRequest(ctx, "GET", endpoint, nil)
-	if err != nil {
-		return nil, fmt.Errorf("Teams API document libraries failed: %w", err)
-	}
-
-	var resp struct {
-		Value []struct {
-			ID      string `json:"id"`
-			Name    string `json:"name"`
-			WebUrl  string `json:"webUrl"`
-			DriveID string `json:"driveId"`
-		} `json:"value"`
-	}
-	if err := json.Unmarshal(data, &resp); err != nil {
-		return nil, err
-	}
-
-	if len(resp.Value) == 0 {
-		return nil, fmt.Errorf("no document libraries found")
-	}
-
-	// Return the first document library
-	return &teams.DriveItem{
-		ID:     resp.Value[0].ID,
-		Name:   resp.Value[0].Name,
-		WebUrl: resp.Value[0].WebUrl,
-	}, nil
 }
 
 // ListMembers returns the members of a team
